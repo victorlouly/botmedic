@@ -39,15 +39,33 @@ const supabase = createClient(
 
 const app = express();
 const httpServer = createServer(app);
+
+// Configurar CORS para o Express
+app.use(cors({
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Configurar middleware para parsing de JSON
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Configurar CORS para o Socket.IO
 const io = new Server(httpServer, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
+    origin: true,
+    credentials: true,
+    methods: ['GET', 'POST']
   }
 });
 
-app.use(cors());
-app.use(express.json());
+// Middleware para logging de requisições
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.url}`);
+  next();
+});
 
 // Configurações do Asaas
 const ASAAS_API_URL = 'https://api.asaas.com/v3';
@@ -59,6 +77,7 @@ const asaasHeaders = {
 // Endpoints do Asaas
 app.get('/api/asaas/payments', async (req, res) => {
   try {
+    console.log('Recebendo requisição para /api/asaas/payments', req.query);
     const { startDate, endDate, status, offset, limit } = req.query;
     
     const searchParams = new URLSearchParams();
@@ -67,35 +86,43 @@ app.get('/api/asaas/payments', async (req, res) => {
     if (status && status !== 'all') {
       searchParams.append('status', status.toUpperCase());
     }
-    // Adicionar parâmetros de paginação
     searchParams.append('offset', String(offset || 0));
     searchParams.append('limit', String(limit || 10));
 
-    const response = await fetch(
-      `${ASAAS_API_URL}/payments?${searchParams.toString()}`,
-      { headers: asaasHeaders }
-    );
+    const url = `${ASAAS_API_URL}/payments?${searchParams.toString()}`;
+    console.log('Fazendo requisição para Asaas:', url);
+
+    const response = await fetch(url, { 
+      headers: asaasHeaders,
+      method: 'GET'
+    });
 
     if (!response.ok) {
+      console.error('Erro na resposta do Asaas:', response.status, response.statusText);
       throw new Error(`Erro na API do Asaas: ${response.statusText}`);
     }
 
     const data = await response.json();
+    console.log('Resposta do Asaas recebida com sucesso');
     res.json(data);
   } catch (error) {
     console.error('Erro ao buscar pagamentos:', error);
-    res.status(500).json({ error: 'Erro ao buscar pagamentos' });
+    res.status(500).json({ error: 'Erro ao buscar pagamentos', details: error.message });
   }
 });
 
 app.get('/api/asaas/customers/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    console.log('Buscando cliente:', id);
+
     const response = await fetch(`${ASAAS_API_URL}/customers/${id}`, {
-      headers: asaasHeaders
+      headers: asaasHeaders,
+      method: 'GET'
     });
 
     if (!response.ok) {
+      console.error('Erro na resposta do Asaas:', response.status, response.statusText);
       throw new Error(`Erro ao buscar cliente: ${response.statusText}`);
     }
 
@@ -103,13 +130,15 @@ app.get('/api/asaas/customers/:id', async (req, res) => {
     res.json(data);
   } catch (error) {
     console.error('Erro ao buscar cliente:', error);
-    res.status(500).json({ error: 'Erro ao buscar cliente' });
+    res.status(500).json({ error: 'Erro ao buscar cliente', details: error.message });
   }
 });
 
 app.get('/api/asaas/payments/export', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
+    console.log('Exportando pagamentos:', { startDate, endDate });
+
     const searchParams = new URLSearchParams({
       startDate: String(startDate),
       endDate: String(endDate),
@@ -118,10 +147,14 @@ app.get('/api/asaas/payments/export', async (req, res) => {
 
     const response = await fetch(
       `${ASAAS_API_URL}/payments/export?${searchParams.toString()}`,
-      { headers: asaasHeaders }
+      { 
+        headers: asaasHeaders,
+        method: 'GET'
+      }
     );
 
     if (!response.ok) {
+      console.error('Erro na resposta do Asaas:', response.status, response.statusText);
       throw new Error(`Erro ao exportar pagamentos: ${response.statusText}`);
     }
 
@@ -132,7 +165,7 @@ app.get('/api/asaas/payments/export', async (req, res) => {
     res.send(data);
   } catch (error) {
     console.error('Erro ao exportar pagamentos:', error);
-    res.status(500).json({ error: 'Erro ao exportar pagamentos' });
+    res.status(500).json({ error: 'Erro ao exportar pagamentos', details: error.message });
   }
 });
 
@@ -621,23 +654,29 @@ io.on('connection', (socket) => {
   });
 });
 
-// Rotas da API
+// Rotas da API do WhatsApp
 app.post('/connect', async (req, res) => {
   try {
+    console.log('Iniciando conexão WhatsApp');
     if (!sock) {
       await startWhatsApp();
+      res.json({ status: 'connecting', message: 'Iniciando conexão' });
+    } else {
+      res.json({ status: 'already_connected', message: 'WhatsApp já está conectado' });
     }
-    res.json({ status: 'connecting' });
   } catch (error) {
     console.error('Erro ao conectar:', error);
-    res.status(500).json({ error: 'Erro ao iniciar conexão' });
+    res.status(500).json({ 
+      error: 'Erro ao iniciar conexão',
+      details: error.message
+    });
   }
 });
 
 app.post('/disconnect', async (req, res) => {
   try {
+    console.log('Desconectando WhatsApp');
     if (sock) {
-      // Logout do WhatsApp
       await sock.logout();
       sock = null;
       qrCode = null;
@@ -645,7 +684,6 @@ app.post('/disconnect', async (req, res) => {
       deviceInfo = null;
       reconnectAttempts = 0;
 
-      // Deletar dados do banco
       if (connectionId) {
         await supabase
           .from('whatsapp_connections')
@@ -654,7 +692,6 @@ app.post('/disconnect', async (req, res) => {
         connectionId = null;
       }
 
-      // Remover diretório de autenticação
       try {
         await rm(AUTH_DIR, { recursive: true, force: true });
         console.log('Diretório de autenticação removido com sucesso');
@@ -662,13 +699,17 @@ app.post('/disconnect', async (req, res) => {
         console.error('Erro ao remover diretório de autenticação:', error);
       }
 
-      // Notificar clientes sobre a desconexão
       io.emit('connection-status', { connected: false });
+      res.json({ status: 'disconnected', message: 'WhatsApp desconectado com sucesso' });
+    } else {
+      res.json({ status: 'not_connected', message: 'WhatsApp não está conectado' });
     }
-    res.json({ status: 'disconnected' });
   } catch (error) {
     console.error('Erro ao desconectar:', error);
-    res.status(500).json({ error: 'Erro ao desconectar' });
+    res.status(500).json({ 
+      error: 'Erro ao desconectar',
+      details: error.message
+    });
   }
 });
 
@@ -686,15 +727,28 @@ app.post('/send', async (req, res) => {
 
   try {
     const { number, message } = req.body;
-    const jid = `${number}@s.whatsapp.net`;
+    console.log('Enviando mensagem para:', number);
     
+    const jid = `${number}@s.whatsapp.net`;
     await sock.sendMessage(jid, { text: message });
     
-    res.json({ status: 'sent' });
+    res.json({ status: 'sent', message: 'Mensagem enviada com sucesso' });
   } catch (error) {
     console.error('Erro ao enviar mensagem:', error);
-    res.status(500).json({ error: 'Erro ao enviar mensagem' });
+    res.status(500).json({ 
+      error: 'Erro ao enviar mensagem',
+      details: error.message
+    });
   }
+});
+
+// Tratamento de erros global
+app.use((err, req, res, next) => {
+  console.error('Erro não tratado:', err);
+  res.status(500).json({ 
+    error: 'Erro interno do servidor',
+    details: err.message
+  });
 });
 
 const PORT = process.env.PORT || 3000;

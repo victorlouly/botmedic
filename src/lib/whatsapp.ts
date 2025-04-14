@@ -1,10 +1,11 @@
 import io from 'socket.io-client';
 import { supabase } from './supabase';
 
-const WHATSAPP_SERVER_URL = 'http://localhost:3000';
+const WHATSAPP_SERVER_URL = 'https://painel.ampemesonline.com.br';
 
 export const socket = io(WHATSAPP_SERVER_URL, {
   transports: ['websocket', 'polling'],
+  withCredentials: true
 });
 
 export interface WhatsAppContact {
@@ -31,6 +32,10 @@ export const whatsappApi = {
   connect: async () => {
     const response = await fetch(`${WHATSAPP_SERVER_URL}/connect`, {
       method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
     return response.json();
   },
@@ -39,6 +44,10 @@ export const whatsappApi = {
     try {
       const response = await fetch(`${WHATSAPP_SERVER_URL}/disconnect`, {
         method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
       
       if (!response.ok) {
@@ -56,7 +65,9 @@ export const whatsappApi = {
   },
 
   getStatus: async () => {
-    const response = await fetch(`${WHATSAPP_SERVER_URL}/status`);
+    const response = await fetch(`${WHATSAPP_SERVER_URL}/status`, {
+      credentials: 'include'
+    });
     return response.json();
   },
 
@@ -118,6 +129,7 @@ export const whatsappApi = {
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify({ 
           number: formattedNumber,
           message 
