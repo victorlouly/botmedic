@@ -1,7 +1,7 @@
 import io from 'socket.io-client';
 import { supabase } from './supabase';
 
-const WHATSAPP_SERVER_URL = 'http://localhost:3000'; // Corrigido de https para http
+const WHATSAPP_SERVER_URL = 'https://ampemesonline.com.br'; // Corrigido de https para http
 
 export const socket = io(WHATSAPP_SERVER_URL, {
   transports: ['websocket', 'polling'],
