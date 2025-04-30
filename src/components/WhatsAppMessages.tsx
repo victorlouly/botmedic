@@ -1,18 +1,145 @@
-// src/components/WhatsAppMessages.tsx
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Phone, Video, MoreVertical, Send, Paperclip, Smile, Tag, Play, Square } from 'lucide-react';
+import { Search, Phone, Video, MoreVertical, Send, Paperclip, Smile, Tag, Play, Square, Plus, X, DollarSign, Calendar } from 'lucide-react';
 import { whatsappApi, type WhatsAppContact, type WhatsAppMessage, socket } from '../lib/whatsapp';
 import { supabase } from '../lib/supabase';
+import { useLocation } from 'react-router-dom';
+
+interface NewContactModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (contact: { name: string; phone: string; }) => Promise<void>;
+}
+
+function NewContactModal({ isOpen, onClose, onSave }: NewContactModalProps) {
+  const [contact, setContact] = useState({ name: '', phone: '' });
+  const [loading, setLoading] = useState(false);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await onSave(contact);
+      onClose();
+    } catch (error) {
+      console.error('Erro ao salvar contato:', error);
+      alert('Erro ao salvar contato');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-md">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold">Novo Contato</h2>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full">
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Nome
+            </label>
+            <input
+              type="text"
+              value={contact.name}
+              onChange={(e) => setContact({ ...contact, name: e.target.value })}
+              className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Telefone (com DDD)
+            </label>
+            <input
+              type="tel"
+              value={contact.phone}
+              onChange={(e) => setContact({ ...contact, phone: e.target.value })}
+              className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="11999999999"
+              required
+            />
+          </div>
+
+          <div className="flex justify-end space-x-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
+            >
+              {loading ? 'Salvando...' : 'Salvar'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 function WhatsAppMessages() {
+  const location = useLocation();
+  const selectedPhone = location.state?.selectedPhone;
+  const searchQuery = location.state?.searchQuery;
   const [contacts, setContacts] = useState<WhatsAppContact[]>([]);
   const [selectedContact, setSelectedContact] = useState<WhatsAppContact | null>(null);
   const [messages, setMessages] = useState<WhatsAppMessage[]>([]);
+  const [processedMessages] = useState(new Set<string>());
   const [inputMessage, setInputMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(searchQuery || '');
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [isNewContactModalOpen, setIsNewContactModalOpen] = useState(false);
+
+  const getStatusColor = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case 'active':
+        return 'bg-green-100 text-green-600';
+      case 'pending':
+        return 'bg-yellow-100 text-yellow-600';
+      case 'suspended':
+        return 'bg-red-100 text-red-600';
+      default:
+        return 'bg-gray-100 text-gray-600';
+    }
+  };
+
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(value);
+  };
+
+  useEffect(() => {
+    loadContacts().then(() => {
+      if (selectedPhone) {
+        const contact = contacts.find(c => c.phone === selectedPhone);
+        if (contact) {
+          setSelectedContact(contact);
+        }
+      }
+      
+      if (searchQuery && searchInputRef.current) {
+        searchInputRef.current.focus();
+      }
+    });
+  }, [selectedPhone, searchQuery]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -26,21 +153,17 @@ function WhatsAppMessages() {
     loadContacts();
 
     const messageHandler = async (message: any) => {
-      console.log('New message received:', message);
+      const messageId = `${message.contact.id}-${message.timestamp}`;
+      
+      if (processedMessages.has(messageId)) {
+        return;
+      }
+      
+      processedMessages.add(messageId);
       await loadContacts();
       
       if (selectedContact && message.contact.id === selectedContact.id) {
-        const lastMessageTimestamp = messages[messages.length - 1]?.created_at;
-        const { data: newMessages } = await supabase
-          .from('whatsapp_messages')
-          .select('*')
-          .eq('contact_id', selectedContact.id)
-          .gt('created_at', lastMessageTimestamp || '1970-01-01')
-          .order('created_at', { ascending: true });
-
-        if (newMessages && newMessages.length > 0) {
-          setMessages(prev => [...prev, ...newMessages]);
-        }
+        await loadMessages(selectedContact.id);
       }
     };
 
@@ -49,7 +172,7 @@ function WhatsAppMessages() {
     return () => {
       socket.off('message', messageHandler);
     };
-  }, [selectedContact, messages]);
+  }, [selectedContact, processedMessages]);
 
   useEffect(() => {
     if (selectedContact) {
@@ -62,7 +185,7 @@ function WhatsAppMessages() {
       const contacts = await whatsappApi.getContacts();
       setContacts(contacts);
     } catch (error) {
-      console.error('Error loading contacts:', error);
+      console.error('Erro ao carregar contatos:', error);
       setError('Erro ao carregar contatos');
     }
   }
@@ -76,10 +199,18 @@ function WhatsAppMessages() {
         .order('created_at', { ascending: true });
 
       if (error) throw error;
-      setMessages(data || []);
+      
+      const uniqueMessages = data?.filter((message, index, self) =>
+        index === self.findIndex((m) => 
+          m.content === message.content && 
+          m.created_at === message.created_at
+        )
+      );
+
+      setMessages(uniqueMessages || []);
       setTimeout(scrollToBottom, 100);
     } catch (error) {
-      console.error('Error loading messages:', error);
+      console.error('Erro ao carregar mensagens:', error);
       setError('Erro ao carregar mensagens');
     }
   }
@@ -100,7 +231,7 @@ function WhatsAppMessages() {
       await loadMessages(selectedContact.id);
       setInputMessage('');
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('Erro ao enviar mensagem:', error);
       setError(error instanceof Error ? error.message : 'Erro ao enviar mensagem');
     } finally {
       setLoading(false);
@@ -144,6 +275,25 @@ function WhatsAppMessages() {
     }
   };
 
+  const handleSaveNewContact = async (contact: { name: string; phone: string }) => {
+    try {
+      const cleanPhone = contact.phone.replace(/\D/g, '');
+      const newContact = await whatsappApi.createContact({
+        name: contact.name,
+        phone: cleanPhone,
+        tags: ['Novo Contato'],
+        created_at: new Date().toISOString(),
+        last_message_at: new Date().toISOString()
+      });
+
+      setContacts([newContact, ...contacts]);
+      setSelectedContact(newContact);
+    } catch (error) {
+      console.error('Erro ao criar contato:', error);
+      throw error;
+    }
+  };
+
   const filteredContacts = contacts.filter(contact => 
     contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     contact.phone.includes(searchTerm)
@@ -153,15 +303,24 @@ function WhatsAppMessages() {
     <div className="h-[calc(100vh-2rem)] bg-white rounded-lg shadow-sm flex">
       <div className="w-80 border-r">
         <div className="p-4 border-b">
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search contacts..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <Search className="absolute left-3 top-2.5 text-gray-400" size={20} />
+          <div className="flex items-center space-x-2 mb-4">
+            <div className="relative flex-1">
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Buscar contatos..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <Search className="absolute left-3 top-2.5 text-gray-400" size={20} />
+            </div>
+            <button
+              onClick={() => setIsNewContactModalOpen(true)}
+              className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+            >
+              <Plus size={20} />
+            </button>
           </div>
         </div>
         <div className="overflow-y-auto h-[calc(100%-4rem)]">
@@ -209,39 +368,61 @@ function WhatsAppMessages() {
       <div className="flex-1 flex flex-col">
         {selectedContact ? (
           <>
-            <div className="p-4 border-b flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                  <span className="text-blue-600 font-semibold">
-                    {selectedContact.name.charAt(0)}
-                  </span>
+            <div className="p-4 border-b">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                    <span className="text-blue-600 font-semibold">
+                      {selectedContact.name.charAt(0)}
+                    </span>
+                  </div>
+                  <div>
+                    <h2 className="font-medium text-gray-900">{selectedContact.name}</h2>
+                    <p className="text-sm text-gray-500">{selectedContact.phone}</p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="font-medium text-gray-900">{selectedContact.name}</h2>
-                  <p className="text-sm text-gray-500">{selectedContact.phone}</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-4">
-                <button
-                  onClick={handleToggleManualService}
-                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg ${
-                    selectedContact.is_manual_service
-                      ? 'bg-red-500 hover:bg-red-600 text-white'
-                      : 'bg-green-500 hover:bg-green-600 text-white'
-                  }`}
-                >
-                  {selectedContact.is_manual_service ? (
-                    <>
-                      <Square size={20} />
-                      <span>Finalizar Atendimento</span>
-                    </>
-                  ) : (
-                    <>
-                      <Play size={20} />
-                      <span>Iniciar Atendimento</span>
-                    </>
+                <div className="flex items-center space-x-4">
+                  {selectedContact.subscription_status && (
+                    <span className={`px-3 py-1 rounded-full text-sm ${getStatusColor(selectedContact.subscription_status)}`}>
+                      {selectedContact.subscription_status.toUpperCase()}
+                    </span>
                   )}
-                </button>
+                  
+                  {selectedContact.next_payment_date && (
+                    <div className="flex items-center space-x-2 text-sm text-gray-600">
+                      <Calendar size={16} />
+                      <span>Próximo: {new Date(selectedContact.next_payment_date).toLocaleDateString()}</span>
+                    </div>
+                  )}
+                  
+                  {selectedContact.monthly_payment_value && (
+                    <div className="flex items-center space-x-2 text-sm text-gray-600">
+                      <DollarSign size={16} />
+                      <span>Mensalidade: {formatCurrency(selectedContact.monthly_payment_value)}</span>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleToggleManualService}
+                    className={`flex items-center space-x-2 px-4 py-2 rounded-lg ${
+                      selectedContact.is_manual_service
+                        ? 'bg-red-500 hover:bg-red-600 text-white'
+                        : 'bg-green-500 hover:bg-green-600 text-white'
+                    }`}
+                  >
+                    {selectedContact.is_manual_service ? (
+                      <>
+                        <Square size={20} />
+                        <span>Finalizar Atendimento</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play size={20} />
+                        <span>Iniciar Atendimento</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -255,20 +436,27 @@ function WhatsAppMessages() {
               {messages.map((message) => (
                 <div 
                   key={message.id} 
-                  className={`flex ${message.sender_type === 'user' ? 'justify-end' : 'justify-start'}`}
+                  className={`flex ${message.sender_type === 'contact' ? 'justify-start' : 'justify-end'}`}
                 >
                   <div 
                     className={`rounded-lg p-3 max-w-[70%] ${
-                      message.sender_type === 'user' 
-                        ? 'bg-blue-500 text-white' 
-                        : 'bg-gray-100 text-gray-800'
+                      message.sender_type === 'contact' 
+                        ? 'bg-gray-100 text-gray-800' 
+                        : message.sender_type === 'bot'
+                        ? 'bg-green-100 text-green-800'
+                        : 'bg-blue-500 text-white'
                     }`}
                   >
+                    {message.sender_type === 'bot' && (
+                      <div className="text-xs text-green-600 mb-1">Bot</div>
+                    )}
                     <p className="whitespace-pre-wrap">{message.content}</p>
                     <span className={`text-xs mt-1 block ${
-                      message.sender_type === 'user' 
-                        ? 'text-blue-100' 
-                        : 'text-gray-500'
+                      message.sender_type === 'contact' 
+                        ? 'text-gray-500'
+                        : message.sender_type === 'bot'
+                        ? 'text-green-600'
+                        : 'text-blue-100'
                     }`}>
                       {new Date(message.created_at).toLocaleTimeString()}
                     </span>
@@ -280,36 +468,66 @@ function WhatsAppMessages() {
 
             <div className="p-4 border-t">
               <div className="flex items-center space-x-2">
-                <button className="p-2 hover:bg-gray-100 rounded-full">
-                  <Paperclip size={20} className="text-gray-600" />
+                <button 
+                  className={`p-2 rounded-full ${!selectedContact?.is_manual_service ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-gray-100 text-gray-600'}`}
+                  disabled={!selectedContact?.is_manual_service}
+                >
+                  <Paperclip size={20} />
                 </button>
                 <input
                   type="text"
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                  placeholder="Type a message..."
-                  className="flex-1 px-4 py-2 rounded-full border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  onKeyPress={(e) => e.key === 'Enter' && selectedContact?.is_manual_service && handleSendMessage()}
+                  placeholder={
+                    selectedContact?.is_manual_service 
+                      ? "Digite uma mensagem..." 
+                      : "Inicie o atendimento manual para enviar mensagens"
+                  }
+                  disabled={!selectedContact?.is_manual_service}
+                  className={`flex-1 px-4 py-2 rounded-full border ${
+                    selectedContact?.is_manual_service
+                      ? 'border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent'
+                      : 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
+                  }`}
                 />
-                <button className="p-2 hover:bg-gray-100 rounded-full">
-                  <Smile size={20} className="text-gray-600" />
+                <button 
+                  className={`p-2 rounded-full ${!selectedContact?.is_manual_service ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-gray-100 text-gray-600'}`}
+                  disabled={!selectedContact?.is_manual_service}
+                >
+                  <Smile size={20} />
                 </button>
                 <button 
                   onClick={handleSendMessage}
-                  disabled={loading || !inputMessage.trim()}
-                  className="p-2 bg-blue-500 hover:bg-blue-600 rounded-full disabled:opacity-50"
+                  disabled={loading || !inputMessage.trim() || !selectedContact?.is_manual_service}
+                  className={`p-2 rounded-full ${
+                    !selectedContact?.is_manual_service || !inputMessage.trim() || loading
+                      ? 'bg-gray-300 cursor-not-allowed'
+                      : 'bg-blue-500 hover:bg-blue-600'
+                  }`}
                 >
                   <Send size={20} className="text-white" />
                 </button>
               </div>
+              {!selectedContact?.is_manual_service && (
+                <p className="text-sm text-gray-500 mt-2 text-center">
+                  Clique em "Iniciar Atendimento" para começar a enviar mensagens
+                </p>
+              )}
             </div>
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-gray-500">
-            Select a contact to start chatting
+            Selecione um contato para iniciar a conversa
           </div>
         )}
       </div>
+
+      <NewContactModal
+        isOpen={isNewContactModalOpen}
+        onClose={() => setIsNewContactModalOpen(false)}
+        onSave={handleSaveNewContact}
+      />
     </div>
   );
 }

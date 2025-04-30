@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, MoreVertical, Tag } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useNavigate } from 'react-router-dom';
 
 interface Task {
   id: number;
@@ -9,6 +10,7 @@ interface Task {
   priority: 'baixa' | 'média' | 'alta';
   tags: string[];
   contact: string;
+  phone: string;
 }
 
 interface Column {
@@ -32,19 +34,34 @@ interface Contact {
   last_message_at: string;
 }
 
+interface ContextMenu {
+  x: number;
+  y: number;
+  taskId: number;
+  phone: string;
+}
+
 function Kanban() {
+  const navigate = useNavigate();
   const [columns, setColumns] = useState<Column[]>([]);
   const [loading, setLoading] = useState(true);
+  const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
 
   useEffect(() => {
     loadData();
+
+    const handleClickOutside = () => setContextMenu(null);
+    document.addEventListener('click', handleClickOutside);
+
+    return () => {
+      document.removeEventListener('click', handleClickOutside);
+    };
   }, []);
 
   async function loadData() {
     try {
       setLoading(true);
 
-      // Carregar opções do menu
       const { data: menuOptions, error: menuError } = await supabase
         .from('menu_options')
         .select('*')
@@ -52,7 +69,6 @@ function Kanban() {
 
       if (menuError) throw menuError;
 
-      // Carregar contatos
       const { data: contacts, error: contactsError } = await supabase
         .from('whatsapp_contacts')
         .select('*')
@@ -60,21 +76,19 @@ function Kanban() {
 
       if (contactsError) throw contactsError;
 
-      // Criar colunas baseadas nas opções do menu
       const newColumns = menuOptions.map((option: MenuOption) => {
-        // Filtrar contatos que têm a tag do departamento
         const departmentContacts = contacts.filter((contact: Contact) =>
           contact.tags?.includes(`dept:${option.title}`)
         );
 
-        // Converter contatos em tarefas
         const tasks = departmentContacts.map((contact: Contact) => ({
           id: parseInt(contact.id),
           title: contact.name,
           description: `Telefone: ${contact.phone}`,
           priority: 'média',
           tags: contact.tags.filter(tag => !tag.startsWith('dept:')),
-          contact: contact.name
+          contact: contact.name,
+          phone: contact.phone
         }));
 
         return {
@@ -84,7 +98,6 @@ function Kanban() {
         };
       });
 
-      // Adicionar coluna "Sem Departamento" para contatos sem tag de departamento
       const unassignedContacts = contacts.filter((contact: Contact) =>
         !contact.tags?.some(tag => tag.startsWith('dept:'))
       );
@@ -98,7 +111,8 @@ function Kanban() {
           description: `Telefone: ${contact.phone}`,
           priority: 'média',
           tags: contact.tags || [],
-          contact: contact.name
+          contact: contact.name,
+          phone: contact.phone
         }))
       });
 
@@ -109,6 +123,27 @@ function Kanban() {
       setLoading(false);
     }
   }
+
+  const handleContextMenu = (e: React.MouseEvent, taskId: number, phone: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      taskId,
+      phone
+    });
+  };
+
+  const handleOpenChat = (contact: { name: string, phone: string }) => {
+    const cleanPhone = contact.phone.replace(/\D/g, '');
+    navigate('/messages', { 
+      state: { 
+        selectedPhone: cleanPhone,
+        searchQuery: contact.name
+      } 
+    });
+  };
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -150,10 +185,16 @@ function Kanban() {
             </div>
             <div className="p-4 space-y-4">
               {column.tasks.map((task) => (
-                <div key={task.id} className="bg-white border rounded-lg p-4 shadow-sm">
+                <div 
+                  key={`${column.id}-${task.id}`} 
+                  className="bg-white border rounded-lg p-4 shadow-sm"
+                >
                   <div className="flex justify-between items-start mb-2">
                     <h3 className="font-medium text-gray-900">{task.title}</h3>
-                    <button className="p-1 hover:bg-gray-100 rounded">
+                    <button 
+                      className="p-1 hover:bg-gray-100 rounded"
+                      onClick={(e) => handleContextMenu(e, task.id, task.phone)}
+                    >
                       <MoreVertical size={16} className="text-gray-500" />
                     </button>
                   </div>
@@ -170,9 +211,9 @@ function Kanban() {
 
                   <div className="space-y-2">
                     <div className="flex flex-wrap gap-1">
-                      {task.tags.map((tag, index) => (
+                      {task.tags.map((tag, tagIndex) => (
                         <span
-                          key={index}
+                          key={`${column.id}-${task.id}-${tagIndex}`}
                           className="flex items-center text-xs px-2 py-1 bg-blue-50 text-blue-600 rounded-full"
                         >
                           <Tag size={12} className="mr-1" />
@@ -192,6 +233,35 @@ function Kanban() {
           </div>
         ))}
       </div>
+
+      {contextMenu && (
+        <div
+          className="fixed bg-white rounded-lg shadow-lg py-1 z-50"
+          style={{
+            top: contextMenu.y,
+            left: contextMenu.x,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="w-full px-4 py-2 text-left hover:bg-gray-100 text-sm"
+            onClick={() => {
+              const task = columns
+                .flatMap(col => col.tasks)
+                .find(t => t.id === contextMenu.taskId);
+              if (task) {
+                handleOpenChat({
+                  name: task.contact,
+                  phone: task.phone
+                });
+              }
+              setContextMenu(null);
+            }}
+          >
+            Abrir Conversa
+          </button>
+        </div>
+      )}
     </div>
   );
 }

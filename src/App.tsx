@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { MessageSquare, Bot, BrainCircuit, LayoutDashboard, LogOut, Menu, X, Users, Phone, ListTodo, Settings, DollarSign } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import Login from './components/Login';
@@ -10,106 +11,34 @@ import Contacts from './components/Contacts';
 import MenuOptions from './components/MenuOptions';
 import PromptManager from './components/PromptManager';
 import AsaasFinanceiro from './components/AsaasFinanceiro';
+import ClientManagement from './components/ClientManagement';
 
-function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+function MainLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState('dashboard');
-  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  const location = useLocation();
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    // Verificar sessão atual
-    checkUser();
-
-    // Configurar listener para mudanças na autenticação
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setIsAuthenticated(!!session);
-      setUser(session?.user || null);
-      setLoading(false);
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
-
-  async function checkUser() {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      setIsAuthenticated(!!session);
-      setUser(session?.user || null);
-    } catch (error) {
-      console.error('Erro ao verificar usuário:', error);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const handleLogin = async (email: string, password: string) => {
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
-
-      if (error) throw error;
-      
-      setIsAuthenticated(true);
-      setUser(data.user);
-    } catch (error) {
-      console.error('Erro no login:', error);
-      throw error; // Propagar erro para o componente Login
-    }
-  };
+    const path = location.pathname.substring(1) || 'dashboard';
+    setCurrentPage(path);
+  }, [location]);
 
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
-      setIsAuthenticated(false);
-      setUser(null);
-      setCurrentPage('dashboard');
+      navigate('/');
     } catch (error) {
       console.error('Erro ao fazer logout:', error);
     }
   };
 
-  const renderPage = () => {
-    switch (currentPage) {
-      case 'dashboard':
-        return <Dashboard />;
-      case 'messages':
-        return <WhatsAppMessages />;
-      case 'connection':
-        return <WhatsAppConnection />;
-      case 'kanban':
-        return <Kanban />;
-      case 'contacts':
-        return <Contacts />;
-      case 'menu-options':
-        return <MenuOptions />;
-      case 'prompts':
-        return <PromptManager />;
-      case 'asaas':
-        return <AsaasFinanceiro />;
-      default:
-        return <Dashboard />;
-    }
+  const navigateToPage = (page: string) => {
+    setCurrentPage(page);
+    navigate(`/${page}`);
+    setIsSidebarOpen(false);
   };
-
-  // Mostrar loading state
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
-
-  // Redirecionar para login se não estiver autenticado
-  if (!isAuthenticated) {
-    return <Login onLogin={handleLogin} />;
-  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -132,7 +61,7 @@ function App() {
             <ul className="space-y-2">
               <li>
                 <button
-                  onClick={() => setCurrentPage('dashboard')}
+                  onClick={() => navigateToPage('dashboard')}
                   className={`flex items-center space-x-3 p-3 rounded-lg w-full ${currentPage === 'dashboard' ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100'}`}
                 >
                   <LayoutDashboard size={20} />
@@ -141,7 +70,16 @@ function App() {
               </li>
               <li>
                 <button
-                  onClick={() => setCurrentPage('messages')}
+                  onClick={() => navigateToPage('clients')}
+                  className={`flex items-center space-x-3 p-3 rounded-lg w-full ${currentPage === 'clients' ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100'}`}
+                >
+                  <Users size={20} />
+                  <span>Gestão de Clientes</span>
+                </button>
+              </li>
+              <li>
+                <button
+                  onClick={() => navigateToPage('messages')}
                   className={`flex items-center space-x-3 p-3 rounded-lg w-full ${currentPage === 'messages' ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100'}`}
                 >
                   <MessageSquare size={20} />
@@ -150,7 +88,7 @@ function App() {
               </li>
               <li>
                 <button
-                  onClick={() => setCurrentPage('connection')}
+                  onClick={() => navigateToPage('connection')}
                   className={`flex items-center space-x-3 p-3 rounded-lg w-full ${currentPage === 'connection' ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100'}`}
                 >
                   <Phone size={20} />
@@ -159,7 +97,7 @@ function App() {
               </li>
               <li>
                 <button
-                  onClick={() => setCurrentPage('kanban')}
+                  onClick={() => navigateToPage('kanban')}
                   className={`flex items-center space-x-3 p-3 rounded-lg w-full ${currentPage === 'kanban' ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100'}`}
                 >
                   <ListTodo size={20} />
@@ -168,7 +106,7 @@ function App() {
               </li>
               <li>
                 <button
-                  onClick={() => setCurrentPage('contacts')}
+                  onClick={() => navigateToPage('contacts')}
                   className={`flex items-center space-x-3 p-3 rounded-lg w-full ${currentPage === 'contacts' ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100'}`}
                 >
                   <Users size={20} />
@@ -177,7 +115,7 @@ function App() {
               </li>
               <li>
                 <button
-                  onClick={() => setCurrentPage('menu-options')}
+                  onClick={() => navigateToPage('menu-options')}
                   className={`flex items-center space-x-3 p-3 rounded-lg w-full ${currentPage === 'menu-options' ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100'}`}
                 >
                   <Settings size={20} />
@@ -186,7 +124,7 @@ function App() {
               </li>
               <li>
                 <button
-                  onClick={() => setCurrentPage('prompts')}
+                  onClick={() => navigateToPage('prompts')}
                   className={`flex items-center space-x-3 p-3 rounded-lg w-full ${currentPage === 'prompts' ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100'}`}
                 >
                   <Bot size={20} />
@@ -195,7 +133,7 @@ function App() {
               </li>
               <li>
                 <button
-                  onClick={() => setCurrentPage('asaas')}
+                  onClick={() => navigateToPage('asaas')}
                   className={`flex items-center space-x-3 p-3 rounded-lg w-full ${currentPage === 'asaas' ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100'}`}
                 >
                   <DollarSign size={20} />
@@ -217,9 +155,83 @@ function App() {
       </div>
 
       <div className="lg:ml-64 p-8">
-        {renderPage()}
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/messages" element={<WhatsAppMessages />} />
+          <Route path="/connection" element={<WhatsAppConnection />} />
+          <Route path="/kanban" element={<Kanban />} />
+          <Route path="/contacts" element={<Contacts />} />
+          <Route path="/menu-options" element={<MenuOptions />} />
+          <Route path="/prompts" element={<PromptManager />} />
+          <Route path="/asaas" element={<AsaasFinanceiro />} />
+          <Route path="/clients" element={<ClientManagement />} />
+        </Routes>
       </div>
     </div>
+  );
+}
+
+function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    checkUser();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthenticated(!!session);
+      setLoading(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  async function checkUser() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      setIsAuthenticated(!!session);
+    } catch (error) {
+      console.error('Erro ao verificar usuário:', error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const handleLogin = async (email: string, password: string) => {
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error) throw error;
+      
+      setIsAuthenticated(true);
+    } catch (error) {
+      console.error('Erro no login:', error);
+      throw error;
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Login onLogin={handleLogin} />;
+  }
+
+  return (
+    <Router>
+      <MainLayout />
+    </Router>
   );
 }
 

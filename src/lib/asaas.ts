@@ -1,4 +1,11 @@
-const API_URL = 'http://localhost:3000/api/asaas';
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: '/api/asaas',
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
 
 interface AsaasPayment {
   id: string;
@@ -67,26 +74,7 @@ export const asaasApi = {
     limit?: number;
   }) {
     try {
-      const searchParams = new URLSearchParams();
-      
-      if (params.startDate) searchParams.append('startDate', params.startDate);
-      if (params.endDate) searchParams.append('endDate', params.endDate);
-      if (params.status && params.status !== 'all') {
-        searchParams.append('status', params.status);
-      }
-      // Adicionar parâmetros de paginação
-      searchParams.append('offset', String(params.offset || 0));
-      searchParams.append('limit', String(params.limit || 10));
-
-      const response = await fetch(
-        `${API_URL}/payments?${searchParams.toString()}`
-      );
-
-      if (!response.ok) {
-        throw new Error(`Erro na API do Asaas: ${response.statusText}`);
-      }
-
-      const data: AsaasResponse<AsaasPayment> = await response.json();
+      const { data } = await api.get<AsaasResponse<AsaasPayment>>('/payments', { params });
       return data;
     } catch (error) {
       console.error('Erro ao buscar pagamentos:', error);
@@ -96,13 +84,8 @@ export const asaasApi = {
 
   async getCustomer(customerId: string) {
     try {
-      const response = await fetch(`${API_URL}/customers/${customerId}`);
-
-      if (!response.ok) {
-        throw new Error(`Erro ao buscar cliente: ${response.statusText}`);
-      }
-
-      return await response.json();
+      const { data } = await api.get(`/customers/${customerId}`);
+      return data;
     } catch (error) {
       console.error('Erro ao buscar cliente:', error);
       throw error;
@@ -111,21 +94,12 @@ export const asaasApi = {
 
   async exportPayments(startDate: string, endDate: string) {
     try {
-      const searchParams = new URLSearchParams({
-        startDate,
-        endDate,
-        format: 'csv'
+      const response = await api.get('/payments/export', {
+        params: { startDate, endDate },
+        responseType: 'blob'
       });
 
-      const response = await fetch(
-        `${API_URL}/payments/export?${searchParams.toString()}`
-      );
-
-      if (!response.ok) {
-        throw new Error(`Erro ao exportar pagamentos: ${response.statusText}`);
-      }
-
-      const blob = await response.blob();
+      const blob = new Blob([response.data], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
